@@ -17,8 +17,11 @@ I kept the algorithms out of the data classes on purpose. Task, Pet and Owner st
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Yes, three changes (compare `uml_draft.mmd` with `uml_final.mmd`):
+
+- `Task` gained a `pet_name` field, set by `Pet.add_task`. The draft had no way to tell which pet a task belonged to once `Owner.get_all_tasks` flattened them, which made filtering by pet and showing results in a table impossible.
+- `Task.mark_complete` now returns the next occurrence (or `None`). I first thought of putting all recurrence logic in the Scheduler, but the date maths belongs with the task and is then testable without an Owner. `Scheduler.handle_recurring` only finds the owning pet and attaches the new task.
+- `Task` validates its time and frequency in `__post_init__`, so a bad `"25:00"` fails when the task is created instead of corrupting sorting later.
 
 ---
 
@@ -26,8 +29,7 @@ I kept the algorithms out of the data classes on purpose. Task, Pet and Owner st
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers start time, due date, completion status, the pet a task belongs to, and recurrence. I did not model duration, priority or owner preferences. Time of day matters most, because the plan has to be read in order, and the double-booking check follows directly from it. Completion status comes next, since finished tasks must not clutter the plan or trigger false conflicts.
 
 **2b. Tradeoffs**
 
@@ -43,13 +45,18 @@ A second, smaller tradeoff is that conflicts are checked across all pets, becaus
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used Claude Code as an agent for the whole build. I gave it a phase-by-phase brief (UML, core classes, UI, algorithms, tests, polish) and it wrote the code, ran pytest and `main.py`, and made one git commit per phase. It also drove the Streamlit app headlessly with `streamlit.testing.v1.AppTest` to check the add pet, add task, conflict and mark-complete flow. The most useful prompt was the one that named exact classes, methods and behaviours per phase, which left little room for it to invent a different design.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+Several first drafts were changed before they were committed:
+
+- The first `main.py` picked the task to complete with a hard-coded list index (`[1]`). That only worked because of the insertion order, so I replaced it with a lookup by description.
+- The first version of the "Mark complete" button in the UI updated the data but left the table above it stale for that run. I changed it to store the success messages in `st.session_state` and call `st.rerun()`.
+- Plain `pytest` could not import `pawpal_system` (only `python -m pytest` worked), so I added a root `conftest.py`.
+- The code avoids `X | None` type syntax so it runs on Python 3.9, which is what is installed here.
+
+I verified by running the 17 tests, running `main.py`, and scripting the Streamlit UI end to end. I have not looked at the app in a browser.
 
 ---
 
@@ -57,13 +64,11 @@ A second, smaller tradeoff is that conflicts are checked across all pets, becaus
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+Sorting order, daily and weekly recurrence (including one-off tasks, completing the same task twice, and a task that belongs to no pet), exact-time conflict detection (across pets, none, ignoring completed and other-day tasks), filtering by pet and status, input validation, and edge cases (a pet with no tasks, an empty owner). These are the behaviours a user would see go wrong first, and most of them are easy to get subtly wrong, such as an off-by-one-day recurrence or a false conflict from a finished task.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+About 4 out of 5 for the logic layer. Next I would test tasks that overlap but start at different times (which needs durations), recurrence across month and year boundaries, tasks created for past dates, duplicate pet names, and the UI in a real browser.
 
 ---
 
@@ -71,12 +76,12 @@ A second, smaller tradeoff is that conflicts are checked across all pets, becaus
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+Keeping all the algorithms in `Scheduler` while `Task`, `Pet` and `Owner` stay simple. That made the logic easy to test without the UI, and the Streamlit app is thin glue over it.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Add task duration and priority, switch conflict detection to interval overlap, and persist data to a JSON file so it survives restarts. I would also let the UI edit and delete tasks and show overdue tasks from earlier days.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+A clear design written first (the UML and a per-phase brief) is what let an AI agent produce coherent code quickly. Its output still needed checking by running it, because it contained brittle shortcuts that only showed up when executed.
