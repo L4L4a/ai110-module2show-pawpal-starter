@@ -57,18 +57,12 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 ## 🧪 Testing PawPal+
 
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+**Covered (17 tests in `tests/test_pawpal.py`):** task completion, adding tasks, time/frequency validation, chronological sorting, today's schedule filtering, daily and weekly recurrence (plus one-off, double-complete and stray-task cases), conflict detection (cross-pet, no conflict, completed/other-day tasks ignored), filtering by pet and status, and edge cases (pet with no tasks, empty owner).
 
-```
-# Paste your pytest output here
-```
+**Confidence: 4/5.** The logic layer is well covered. The Streamlit UI is only checked by hand and conflicts only match exact start times.
 
 ## 📐 Smarter Scheduling
 
