@@ -2,10 +2,18 @@
 
 ## 1. System Design
 
-**a. Initial design**
+**1a. Initial Design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+My first UML (`diagrams/uml_draft.mmd`) has four classes, each with one job:
+
+- **Task** holds one piece of care work: a description, an `HH:MM` time, a frequency (`once`, `daily`, `weekly`), a completed flag and a due date. It only knows how to mark itself complete.
+- **Pet** (name, species, age) owns a list of Tasks and can add one or list the pending ones. A task belongs to exactly one pet, so the pet is the natural container.
+- **Owner** owns a list of Pets and can flatten every pet's tasks into one list (`get_all_tasks`). It is the single entry point to the data.
+- **Scheduler** holds no data of its own. It takes an Owner and does the "thinking": today's schedule, sorting, filtering, conflict detection and recurrence.
+
+Relationships: Owner 1-* Pet, Pet 1-* Task, and Scheduler points at Owner.
+
+I kept the algorithms out of the data classes on purpose. Task, Pet and Owner stay simple containers that are easy to test, and anything that looks across several pets lives in one place, the Scheduler. Times are `HH:MM` strings so they sort lexicographically and are easy to show in a UI.
 
 **b. Design changes**
 
