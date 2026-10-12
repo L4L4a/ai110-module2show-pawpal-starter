@@ -4,84 +4,98 @@
 
 **1a. Initial Design**
 
-My first UML (`diagrams/uml_draft.mmd`) has four classes, each with one job:
+I started with four classes (`diagrams/uml_draft.mmd`) and tried to give each one a single job:
 
-- **Task** holds one piece of care work: a description, an `HH:MM` time, a frequency (`once`, `daily`, `weekly`), a completed flag and a due date. It only knows how to mark itself complete.
-- **Pet** (name, species, age) owns a list of Tasks and can add one or list the pending ones. A task belongs to exactly one pet, so the pet is the natural container.
-- **Owner** owns a list of Pets and can flatten every pet's tasks into one list (`get_all_tasks`). It is the single entry point to the data.
-- **Scheduler** holds no data of its own. It takes an Owner and does the "thinking": today's schedule, sorting, filtering, conflict detection and recurrence.
+- `Task`: one piece of care work. It has a description, an `HH:MM` time, a frequency (`once`/`daily`/`weekly`), a `completed` flag and a `due_date`.
+- `Pet`: name, species, age, and a list of `Task`s. It has `add_task` and `get_pending_tasks`.
+- `Owner`: holds the list of `Pet`s. `get_all_tasks` flattens every pet's tasks so nothing else needs to loop over pets.
+- `Scheduler`: takes an `Owner` and holds no data of its own. Sorting, filtering, conflicts and recurrence all live here.
 
-Relationships: Owner 1-* Pet, Pet 1-* Task, and Scheduler points at Owner.
+Relationships are Owner 1-* Pet, Pet 1-* Task, and Scheduler pointing at Owner. I put the algorithms in `Scheduler` on purpose. The three data classes stay dumb and easy to test, and anything that has to look across pets has exactly one place to live. I used `HH:MM` strings instead of `datetime` objects so they sort as plain strings and drop straight into a Streamlit table.
 
-I kept the algorithms out of the data classes on purpose. Task, Pet and Owner stay simple containers that are easy to test, and anything that looks across several pets lives in one place, the Scheduler. Times are `HH:MM` strings so they sort lexicographically and are easy to show in a UI.
+**1b. Design changes**
 
-**b. Design changes**
+The design changed in three places. You can see them by diffing `uml_draft.mmd` against `uml_final.mmd`, plus the code in `pawpal_system.py`.
 
-Yes, three changes (compare `uml_draft.mmd` with `uml_final.mmd`):
-
-- `Task` gained a `pet_name` field, set by `Pet.add_task`. The draft had no way to tell which pet a task belonged to once `Owner.get_all_tasks` flattened them, which made filtering by pet and showing results in a table impossible.
-- `Task.mark_complete` now returns the next occurrence (or `None`). I first thought of putting all recurrence logic in the Scheduler, but the date maths belongs with the task and is then testable without an Owner. `Scheduler.handle_recurring` only finds the owning pet and attaches the new task.
-- `Task` validates its time and frequency in `__post_init__`, so a bad `"25:00"` fails when the task is created instead of corrupting sorting later.
+- I added `Task.pet_name`, which `Pet.add_task` fills in. The draft didn't have it. Once `Owner.get_all_tasks` flattens everything, a task had no idea which pet it belonged to, so filtering by pet and showing a "Pet" column in the UI table were both impossible.
+- `Task.mark_complete()` now returns the next occurrence (or `None`) instead of returning nothing. The date math with `timedelta` belongs on the task, and it means I can test recurrence without building an `Owner`. `Scheduler.handle_recurring` just finds the pet that owns the task and attaches the new one.
+- `Task.__post_init__` validates the time and frequency. A bad time like `"25:00"` now raises `ValueError` right away instead of quietly breaking the sort later.
 
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
 
-**a. Constraints and priorities**
+**2a. Constraints and priorities**
 
-The scheduler considers start time, due date, completion status, the pet a task belongs to, and recurrence. I did not model duration, priority or owner preferences. Time of day matters most, because the plan has to be read in order, and the double-booking check follows directly from it. Completion status comes next, since finished tasks must not clutter the plan or trigger false conflicts.
+The scheduler looks at start time, due date, completed status, which pet a task belongs to, and frequency. It does not look at duration, priority or owner preferences. The original README says tasks should have at least duration and priority, and I didn't build either, so that's a gap against the spec. Time of day was the constraint I treated as most important, because a schedule is only useful if it reads in order, and the conflict check falls out of it. Completion status came second so that finished tasks don't show up as pending or trigger fake conflicts.
 
 **2b. Tradeoffs**
 
-Conflict detection only matches **exact start times**. Two tasks at `08:00` are flagged, but a 30-minute walk at `08:00` and a feeding at `08:15` are not, because a `Task` has no duration. Doing it properly means storing a duration, converting times to minutes and checking interval overlap (`start_a < end_b and start_b < end_a`), and it raises extra questions such as whether one person can walk the dog and feed the cat at once.
+`Scheduler.detect_conflicts` only flags tasks with the **exact same date and start time**. Two things at `08:00` get a warning. A walk at `08:00` and a feeding at `08:15` don't, and that holds even if the walk runs 30 minutes, because `Task` has no duration field. A proper fix needs durations and an interval check (`start_a < end_b and start_b < end_a`). It also forces a decision I didn't want to make for this project: can one person feed the cat while the dog is on a walk?
 
-I chose exact matching because it is easy to explain, easy to test, and catches the most common mistake, double-booking the same slot. It also returns warnings instead of blocking anything, so the owner decides. For a single owner with a handful of short daily tasks, a false negative costs little. The cost is that real overlaps slip through, and adding durations is the first thing I would do next.
-
-A second, smaller tradeoff is that conflicts are checked across all pets, because the owner is one person who cannot be in two places.
+I went with exact matching because it's simple, it's easy to test, and it catches the most obvious mistake, double-booking a slot. It returns warning strings and doesn't block anything, so the owner makes the call. The cost is false negatives for overlapping tasks that start at different times. It does check across all pets, since the owner is one person.
 
 ---
 
 ## 3. AI Collaboration
 
-**a. How you used AI**
+**3a. How you used AI**
 
-I used Claude Code as an agent for the whole build. I gave it a phase-by-phase brief (UML, core classes, UI, algorithms, tests, polish) and it wrote the code, ran pytest and `main.py`, and made one git commit per phase. It also drove the Streamlit app headlessly with `streamlit.testing.v1.AppTest` to check the add pet, add task, conflict and mark-complete flow. The most useful prompt was the one that named exact classes, methods and behaviours per phase, which left little room for it to invent a different design.
+I used Claude Code for most of the build. I handed it a phase-by-phase brief covering the UML, the classes, `app.py`, the algorithms, the tests and the polish, and it wrote the code and made one commit per phase (see `git log`). By phase:
 
-**b. Judgment and verification**
+- **Scaffolding:** `pawpal_system.py`, `main.py` and the Streamlit wiring, including keeping the `Owner` in `st.session_state`.
+- **UML:** the Mermaid files, `uml_draft.mmd` and `uml_final.mmd`.
+- **Tests:** the 17 tests in `tests/test_pawpal.py`, including the edge cases (pet with no tasks, empty owner, completing the same task twice).
 
-Several first drafts were changed before they were committed:
+It also ran `pytest` and `main.py`, and it drove the Streamlit app headlessly with `streamlit.testing.v1.AppTest` to check the add pet, add task, conflict and mark-complete flow. The prompt that worked best was the long one with exact class names, method names and behaviours per phase, because it left little room for a different design.
 
-- The first `main.py` picked the task to complete with a hard-coded list index (`[1]`). That only worked because of the insertion order, so I replaced it with a lookup by description.
-- The first version of the "Mark complete" button in the UI updated the data but left the table above it stale for that run. I changed it to store the success messages in `st.session_state` and call `st.rerun()`.
-- Plain `pytest` could not import `pawpal_system` (only `python -m pytest` worked), so I added a root `conftest.py`.
-- The code avoids `X | None` type syntax so it runs on Python 3.9, which is what is installed here.
+**3b. Judgment and verification**
 
-I verified by running the 17 tests, running `main.py`, and scripting the Streamlit UI end to end. I have not looked at the app in a browser.
+Here are the concrete cases where the output got corrected. Some of these are the AI correcting itself rather than me rejecting a suggestion, and I'm not going to dress that up:
+
+- The repo's last commit renamed `diagrams/uml_draft.mmd` to `uml.mmd` for grading, but the brief asked for `uml_draft.mmd` and `uml_final.mmd`. The result was both new files plus `uml.mmd` kept as a copy of the final. That's visible in the Phase 1 and Phase 6 commits.
+- The first `main.py` picked the task to complete with a hard-coded list index, `[1]`. That only worked because of insertion order. It got changed to a lookup by description before the Phase 4 commit.
+- The first "Mark complete" button in `app.py` updated the data but left the table above it stale for that run. It now stores the success messages in `st.session_state`, calls `st.rerun()`, and shows them on the next pass. A bad placeholder line (`st.rerun() if False else None`) was written and removed along the way.
+- Running plain `pytest` failed to import `pawpal_system`, because only `python -m pytest` worked. A root `conftest.py` fixed that.
+- The code uses no `X | None` type syntax because the Python here is 3.9.
+
+I checked all this by running the tests, running `main.py`, and scripting the UI. The caveat is that I haven't opened the app in a browser.
 
 ---
 
 ## 4. Testing and Verification
 
-**a. What you tested**
+**4a. What you tested**
 
-Sorting order, daily and weekly recurrence (including one-off tasks, completing the same task twice, and a task that belongs to no pet), exact-time conflict detection (across pets, none, ignoring completed and other-day tasks), filtering by pet and status, input validation, and edge cases (a pet with no tasks, an empty owner). These are the behaviours a user would see go wrong first, and most of them are easy to get subtly wrong, such as an off-by-one-day recurrence or a false conflict from a finished task.
+I wrote 17 tests in `tests/test_pawpal.py`:
 
-**b. Confidence**
+- Sorting: `sort_by_time` returns chronological order, and `get_todays_schedule` excludes other days.
+- Recurrence: a daily task creates a next-day task, a weekly one creates a task a week later, a `once` task creates nothing, and completing the same task twice doesn't duplicate it. A task that belongs to none of the owner's pets is ignored.
+- Conflicts: duplicate times across pets are flagged, and there are no false positives for different times, completed tasks or different dates.
+- Filtering: by pet (case-insensitive), by status, by both, and by neither.
+- Validation: a bad time or frequency raises `ValueError`.
+- Edge cases: a pet with no tasks and an empty `Owner`.
 
-About 4 out of 5 for the logic layer. Next I would test tasks that overlap but start at different times (which needs durations), recurrence across month and year boundaries, tasks created for past dates, duplicate pet names, and the UI in a real browser.
+These are the things most likely to be subtly wrong: off-by-one-day recurrence, a finished task still counting as a conflict, or a crash on empty input.
+
+**4b. Confidence**
+
+I'd say 4 out of 5 for the logic layer. The UI is only covered by `AppTest` and manual clicking. With more time I'd test overlapping tasks (which needs durations), recurrence across month and year boundaries, duplicate pet names, and the real app in a browser.
 
 ---
 
 ## 5. Reflection
 
-**a. What went well**
+**5a. What went well**
 
-Keeping all the algorithms in `Scheduler` while `Task`, `Pet` and `Owner` stay simple. That made the logic easy to test without the UI, and the Streamlit app is thin glue over it.
+Putting every algorithm in `Scheduler` and keeping `Task`, `Pet` and `Owner` simple. The logic was easy to test with no Streamlit involved, and `app.py` ended up as thin glue.
 
-**b. What you would improve**
+**5b. What you would improve**
 
-Add task duration and priority, switch conflict detection to interval overlap, and persist data to a JSON file so it survives restarts. I would also let the UI edit and delete tasks and show overdue tasks from earlier days.
+- Add `duration` and `priority` to `Task` (the README lists both as a minimum), then change `detect_conflicts` to check for overlapping intervals instead of exact times.
+- Persist data to a JSON file, because right now everything is in memory and disappears when the app restarts.
+- Let the UI edit and delete tasks, and show overdue tasks from earlier days, which `get_todays_schedule` currently leaves out.
 
-**c. Key takeaway**
+**5c. Key takeaway**
 
-A clear design written first (the UML and a per-phase brief) is what let an AI agent produce coherent code quickly. Its output still needed checking by running it, because it contained brittle shortcuts that only showed up when executed.
+Having the UML and a per-phase spec first is what made the AI output fit together, because it had a design to follow. The output still had brittle shortcuts, like the hard-coded index in `main.py` and the stale table in `app.py`, and I only caught them by running things.
