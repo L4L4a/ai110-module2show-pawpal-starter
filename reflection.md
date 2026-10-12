@@ -29,10 +29,13 @@ I kept the algorithms out of the data classes on purpose. Task, Pet and Owner st
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
-**b. Tradeoffs**
+**2b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+Conflict detection only matches **exact start times**. Two tasks at `08:00` are flagged, but a 30-minute walk at `08:00` and a feeding at `08:15` are not, because a `Task` has no duration. Doing it properly means storing a duration, converting times to minutes and checking interval overlap (`start_a < end_b and start_b < end_a`), and it raises extra questions such as whether one person can walk the dog and feed the cat at once.
+
+I chose exact matching because it is easy to explain, easy to test, and catches the most common mistake, double-booking the same slot. It also returns warnings instead of blocking anything, so the owner decides. For a single owner with a handful of short daily tasks, a false negative costs little. The cost is that real overlaps slip through, and adding durations is the first thing I would do next.
+
+A second, smaller tradeoff is that conflicts are checked across all pets, because the owner is one person who cannot be in two places.
 
 ---
 

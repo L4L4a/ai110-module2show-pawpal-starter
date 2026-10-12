@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 FREQUENCIES = ("once", "daily", "weekly")
@@ -27,9 +27,20 @@ class Task:
         if self.frequency not in FREQUENCIES:
             raise ValueError(f"frequency must be one of {FREQUENCIES}, got {self.frequency!r}")
 
-    def mark_complete(self) -> None:
-        """Mark this task as done."""
+    def mark_complete(self) -> Optional["Task"]:
+        """Mark this task as done.
+
+        Returns the next occurrence for a daily/weekly task (not yet attached
+        to a pet), or None for one-off tasks or if it was already complete.
+        """
+        if self.completed:
+            return None
         self.completed = True
+        step = {"daily": timedelta(days=1), "weekly": timedelta(weeks=1)}.get(self.frequency)
+        if step is None:
+            return None
+        return Task(self.description, self.time, self.frequency, False,
+                    self.due_date + step, self.pet_name)
 
 
 @dataclass
@@ -78,3 +89,48 @@ class Scheduler:
         today = today or date.today()
         due = [t for t in self.owner.get_all_tasks() if t.due_date == today]
         return sorted(due, key=lambda t: t.time)
+
+    def sort_by_time(self, tasks: List[Task]) -> List[Task]:
+        """Return tasks ordered by due date, then HH:MM time."""
+        return sorted(tasks, key=lambda t: (t.due_date, t.time))
+
+    def filter_tasks(self, pet_name: Optional[str] = None,
+                     completed: Optional[bool] = None) -> List[Task]:
+        """Filter all tasks by pet name and/or completion status (None = any)."""
+        tasks = self.owner.get_all_tasks()
+        if pet_name is not None:
+            tasks = [t for t in tasks if t.pet_name.lower() == pet_name.lower()]
+        if completed is not None:
+            tasks = [t for t in tasks if t.completed == completed]
+        return tasks
+
+    def detect_conflicts(self) -> List[str]:
+        """Return a warning string for each date/time slot with 2+ pending tasks.
+
+        Only exact start-time matches are detected (tasks have no duration).
+        Never raises; returns an empty list when there are no conflicts.
+        """
+        slots = {}
+        for task in self.owner.get_all_tasks():
+            if not task.completed:
+                slots.setdefault((task.due_date, task.time), []).append(task)
+        warnings = []
+        for (due, time), group in sorted(slots.items()):
+            if len(group) > 1:
+                names = ", ".join(f"{t.pet_name}: {t.description}" for t in group)
+                warnings.append(f"Conflict on {due.isoformat()} at {time}: {names}")
+        return warnings
+
+    def handle_recurring(self, task: Task) -> Optional[Task]:
+        """Complete a task and, if it repeats, add its next occurrence to the same pet.
+
+        Returns the newly created task, or None if nothing was created.
+        """
+        next_task = task.mark_complete()
+        if next_task is None:
+            return None
+        for pet in self.owner.pets:
+            if any(t is task for t in pet.tasks):
+                pet.add_task(next_task)
+                return next_task
+        return None  # task does not belong to any of this owner's pets

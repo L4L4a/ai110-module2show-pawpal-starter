@@ -27,7 +27,20 @@ def print_schedule(scheduler: Scheduler) -> None:
 
 def main() -> None:
     owner = build_demo_owner()
-    print_schedule(Scheduler(owner))
+    scheduler = Scheduler(owner)
+    # Deliberate clash: Biscuit and Mochi both at 08:00.
+    owner.pets[0].add_task(Task("Vet call", "08:00"))
+    print_schedule(scheduler)
+
+    print("\nConflicts")
+    for warning in scheduler.detect_conflicts() or ["none"]:
+        print(" !", warning)
+
+    print("\nCompleting 'Morning walk' (daily)...")
+    walk = next(t for t in scheduler.filter_tasks(pet_name="Biscuit") if t.description == "Morning walk")
+    new = scheduler.handle_recurring(walk)
+    print(f"  next occurrence: {new.description} on {new.due_date} at {new.time}")
+    print("  Biscuit, completed:", [t.description for t in scheduler.filter_tasks("Biscuit", True)])
 
 
 if __name__ == "__main__":
