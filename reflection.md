@@ -58,8 +58,9 @@ Here are the concrete cases where the output got corrected. Some of these are th
 - The first "Mark complete" button in `app.py` updated the data but left the table above it stale for that run. It now stores the success messages in `st.session_state`, calls `st.rerun()`, and shows them on the next pass. A bad placeholder line (`st.rerun() if False else None`) was written and removed along the way.
 - Running plain `pytest` failed to import `pawpal_system`, because only `python -m pytest` worked. A root `conftest.py` fixed that.
 - The code uses no `X | None` type syntax because the Python here is 3.9.
+- The brief listed recurrence as a `Scheduler` job. I kept `handle_recurring` there but moved the `timedelta` date math into `Task.mark_complete`, so it's testable without an `Owner`.
 
-I checked all this by running the tests, running `main.py`, and scripting the UI. The caveat is that I haven't opened the app in a browser.
+I checked all this by running the tests, running `main.py`, and scripting the UI. I also opened the app in a browser and clicked through it myself.
 
 ---
 
@@ -80,7 +81,7 @@ These are the things most likely to be subtly wrong: off-by-one-day recurrence, 
 
 **4b. Confidence**
 
-I'd say 4 out of 5 for the logic layer. The UI is only covered by `AppTest` and manual clicking. With more time I'd test overlapping tasks (which needs durations), recurrence across month and year boundaries, duplicate pet names, and the real app in a browser.
+I'd say 4 out of 5 for the logic layer. The UI is covered by `AppTest` and by me clicking through it in a browser, but not by automated tests. With more time I'd test overlapping tasks (which needs durations), recurrence across month and year boundaries, and duplicate pet names.
 
 ---
 
